@@ -9,11 +9,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      # workspace:* deps can't resolve outside the monorepo.
-      # Replace them with the published npm versions for CI.
-      - name: Replace workspace deps
+      # Clone and build core since it's not yet published to npm
+      - name: Setup @agentableui/core
         run: |
-          sed -i 's|"workspace:\*"|"*"|g' package.json
+          git clone https://github.com/agentableui/core.git /tmp/core
+          cd /tmp/core && pnpm install && pnpm build
+      # Link core as file dep
+      - name: Link workspace deps
+        run: |
+          sed -i 's|"@agentableui/core": "workspace:\*"|"@agentableui/core": "file:/tmp/core"|g' package.json
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
