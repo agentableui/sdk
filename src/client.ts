@@ -15,23 +15,27 @@ export class AgentableClient {
   currentState: { name: string; actions: Record<string, ManifestAction> } | null = null
   manifest: RoleManifest | null = null
 
-  constructor(baseUrl: string, options?: { apiKey?: string; role?: string }) {
+  private timeout: number
+
+  constructor(baseUrl: string, options?: { apiKey?: string; role?: string; timeout?: number }) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
     this.apiKey = options?.apiKey
     this.role = options?.role ?? 'public'
+    this.timeout = options?.timeout ?? 30000
   }
 
   async discover(): Promise<RoleManifest> {
-    const meta = await fetchMetaManifest(this.baseUrl)
+    const meta = await fetchMetaManifest(this.baseUrl, this.timeout)
     const manifestPath = meta.manifests[this.role]
     if (!manifestPath) {
-      throw new Error(`Role "${this.role}" not found in meta-manifest`)
+      const available = Object.keys(meta.manifests).join(', ')
+      throw new Error(`Role "${this.role}" not found. Available roles: ${available}`)
     }
 
     this.executeUrl = `${this.baseUrl}${meta.execute}`
     this.conditionsUrl = `${this.baseUrl}${meta.conditions}`
 
-    const result = await fetchRoleManifest(this.baseUrl, manifestPath, this.apiKey, this.etag)
+    const result = await fetchRoleManifest(this.baseUrl, manifestPath, this.apiKey, this.etag, this.timeout)
     if (result) {
       this.manifest = result.manifest
       this.etag = result.etag
@@ -71,6 +75,7 @@ export class AgentableClient {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeout),
     })
 
     const response: ExecuteResponse = await res.json()
@@ -84,9 +89,10 @@ export class AgentableClient {
         this.storedReturnTo = response.returnTo
       }
       const newState = this.manifest?.states[response.state]
-      if (newState) {
-        this.currentState = { name: response.state, actions: newState.actions }
+      if (!newState) {
+        throw new Error(`Server returned unknown state "${response.state}"`)
       }
+      this.currentState = { name: response.state, actions: newState.actions }
     }
 
     return response
@@ -99,7 +105,7 @@ export class AgentableClient {
     const headers: Record<string, string> = {}
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`
 
-    const res = await fetch(this.conditionsUrl, { headers })
+    const res = await fetch(this.conditionsUrl, { headers, signal: AbortSignal.timeout(this.timeout) })
     if (!res.ok) throw new Error(`Failed to check conditions: ${res.status}`)
     return res.json()
   }
