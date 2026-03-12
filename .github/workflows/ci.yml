@@ -6,12 +6,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: pnpm install
+      # workspace:* deps can't resolve outside the monorepo.
+      # Replace them with the published npm versions for CI.
+      - name: Replace workspace deps
+        run: |
+          sed -i 's|"workspace:\*"|"*"|g' package.json
+      - run: pnpm install --no-frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
